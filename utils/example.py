@@ -11,7 +11,7 @@ def find_best_match(value, sentence): # value=ontology sentence=predicted senten
     for idx in range(len(sentence)-min_length+1):
         pres_score = len(np.where(np.array(list(value)[: min_length])==np.array(list(sentence)[idx: idx+min_length]))[0])
         (best_score, bidx) =  (pres_score, idx) if pres_score > best_score else (best_score, bidx)
-    return bidx, best_score / len(value)
+    return bidx, best_score
 
 def cancel_parenthesis(sentence):
     new_sentence = []
@@ -74,7 +74,7 @@ class Example():
         for slot in self.slot:
             value = self.slot[slot]
             bidx, score = find_best_match(value, self.utt)
-            if score >= 0.5:
+            if score / len(value) >= 0.5:
                 actual_legth = min(len(value), len(self.utt)-bidx)
                 self.tags[bidx: bidx + actual_legth] = [f'I-{slot}'] * actual_legth
                 self.tags[bidx] = f'B-{slot}'

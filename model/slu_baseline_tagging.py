@@ -13,10 +13,10 @@ def find_best_match(value, sentence): # value=ontology sentence=predicted senten
     for idx in range(len(sentence)-min_length+1):
         pres_score = len(np.where(np.array(list(value)[: min_length])==np.array(list(sentence)[idx: idx+min_length]))[0])
         (best_score, bidx) =  (pres_score, idx) if pres_score > best_score else (best_score, bidx)
-    return bidx, best_score / min_length
+    return bidx, best_score
 
 def map(tensor):# 0->PAD 1->O 2->B 3->I
-    BIO_tensor = copy.copy(tensor)
+    BIO_tensor = copy.deepcopy(tensor)
     BIO_tensor[(tensor >=2) * (tensor % 2 == 0)] = 2
     BIO_tensor[(tensor >=3) * (tensor % 2 == 1)] = 3
     slot_tensor = torch.where(tensor == 1, 0, tensor)
@@ -44,6 +44,8 @@ class SLUTagging(nn.Module):
 
         with open(self.observed_values_path, 'r') as f:
             self.value_list = f.readlines()
+        for i in range(len(self.value_list)):
+            self.value_list[i] = self.value_list[i][: -1]        
 
     def forward(self, batch):
         tag_ids = batch.tag_ids
