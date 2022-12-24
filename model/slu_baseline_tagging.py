@@ -87,6 +87,8 @@ class SLUTagging(nn.Module):
         slot_label = torch.argmax(slot_prob, dim=-1)
 
         tag_output = unmap(BIO_label, slot_label)
+        if self.config.transformer:
+            tag_output = tag_output[:, 1: -1]
         total_loss = BIO_loss + slot_loss
         return tag_output, total_loss
 
@@ -96,7 +98,7 @@ class SLUTagging(nn.Module):
         tag_output, loss = self.forward(batch)
         predictions = []
         for i in range(batch_size):
-            pred = tag_output[i][1: -1].cpu().tolist()
+            pred = tag_output[i].cpu().tolist()
             pred_tuple = []
             idx_buff, tag_buff, pred_tags = [], [], []
             pred = pred[:len(batch.utt[i])]
