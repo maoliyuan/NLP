@@ -5,6 +5,7 @@ import os
 import torch.nn as nn
 import torch.nn.utils.rnn as rnn_utils
 import copy
+from transformers import AutoTokenizer, BertModel
 
 def find_best_match(value, sentence): # value=ontology sentence=predicted sentence when inferencing
     bidx = 0
@@ -35,9 +36,13 @@ class SLUTagging(nn.Module):
         self.config = config
         self.observed_values_path = os.path.join(config.dataroot, 'observed_values.txt')
         self.cell = config.encoder_cell
+        if config.transformer:
+            self.tokenizer = AutoTokenizer.from_pretrained("bert-base-chinese")
+            self.transformer = BertModel.from_pretrained("bert-base-chinese")
+        else:
+            self.rnn = getattr(nn, self.cell)(config.embed_size, config.hidden_size // 2, num_layers=config.num_layer, bidirectional=True, batch_first=True)
+            self.dropout_layer = nn.Dropout(p=config.dropout)
         self.word_embed = nn.Embedding(config.vocab_size, config.embed_size, padding_idx=0)
-        self.rnn = getattr(nn, self.cell)(config.embed_size, config.hidden_size // 2, num_layers=config.num_layer, bidirectional=True, batch_first=True)
-        self.dropout_layer = nn.Dropout(p=config.dropout)
         self.BI_embedding_dim = config.BI_embedding_dim
         self.BIO_tagger = TaggingFNNDecoder(config.hidden_size, 4, config.tag_pad_idx)
         self.slot_tagger = TaggingFNNDecoder(config.hidden_size + self.BI_embedding_dim, 37, config.tag_pad_idx)
@@ -49,15 +54,27 @@ class SLUTagging(nn.Module):
 
     def forward(self, batch):
         tag_ids = batch.tag_ids
+        if self.config.transformer:
+            pad_tensor = torch.zeros((tag_ids.shape[0], 1)).to(self.config.device)
+            tag_ids = torch.concat([pad_tensor, tag_ids, pad_tensor], dim=1).to(dtype=torch.int64)
         BIO_ids, slot_ids = map(tag_ids)
-        tag_mask = batch.tag_mask
         input_ids = batch.input_ids
         lengths = batch.lengths
-        embed = self.word_embed(input_ids)
-        packed_inputs = rnn_utils.pack_padded_sequence(embed, lengths, batch_first=True, enforce_sorted=True)
-        packed_rnn_out, h_t_c_t = self.rnn(packed_inputs)  # bsize x seqlen x dim
-        rnn_out, unpacked_len = rnn_utils.pad_packed_sequence(packed_rnn_out, batch_first=True)
-        hiddens = self.dropout_layer(rnn_out)
+        if self.config.transformer:
+            utts = batch.utt
+            max_length = batch.max_len
+            encoded_inputs = self.tokenizer(utts, padding='max_length', max_length=max_length+2, return_tensors='pt').to(self.config.device)
+            outputs = self.transformer(**encoded_inputs)
+            hiddens = outputs.last_hidden_state
+            tag_mask = encoded_inputs["attention_mask"]
+        else:
+            tag_mask = batch.tag_mask
+            embed = self.word_embed(input_ids)
+            packed_inputs = rnn_utils.pack_padded_sequence(embed, lengths, batch_first=True, enforce_sorted=True)
+            packed_rnn_out, h_t_c_t = self.rnn(packed_inputs)  # bsize x seqlen x dim
+            rnn_out, unpacked_len = rnn_utils.pad_packed_sequence(packed_rnn_out, batch_first=True)
+            hiddens = self.dropout_layer(rnn_out)
+
         BIO_prob, BIO_loss = self.BIO_tagger(hiddens, tag_mask, BIO_ids)
         BIO_label = torch.argmax(BIO_prob, dim=-1)
 
@@ -79,7 +96,7 @@ class SLUTagging(nn.Module):
         tag_output, loss = self.forward(batch)
         predictions = []
         for i in range(batch_size):
-            pred = tag_output[i].cpu().tolist()
+            pred = tag_output[i][1: -1].cpu().tolist()
             pred_tuple = []
             idx_buff, tag_buff, pred_tags = [], [], []
             pred = pred[:len(batch.utt[i])]

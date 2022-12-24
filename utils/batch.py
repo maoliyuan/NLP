@@ -11,6 +11,7 @@ def from_example_list(args, ex_list, device='cpu', train=True):
     batch.utt = [ex.utt for ex in ex_list]
     input_lens = [len(ex.input_idx) for ex in ex_list]
     max_len = max(input_lens)
+    batch.max_len = max_len
     input_ids = [ex.input_idx + [pad_idx] * (max_len - len(ex.input_idx)) for ex in ex_list]
     batch.input_ids = torch.tensor(input_ids, dtype=torch.long, device=device)
     batch.lengths = input_lens

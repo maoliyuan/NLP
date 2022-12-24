@@ -21,8 +21,10 @@ def cancel_parenthesis(sentence):
             new_sentence.append(comp)
         else:
             comp_list = comp.split('(')
-            if len(comp_list) == 2:
+            if comp_list[0] != '':
                 new_sentence.append(comp_list[0])
+    if len(new_sentence) == 1:
+        new_sentence = ['', '']
     return 'å'.join(new_sentence)
 
 class Example():
@@ -35,15 +37,16 @@ class Example():
         cls.label_vocab = LabelVocab(root)
 
     @classmethod
-    def load_dataset(cls, data_path):
+    def load_dataset(cls, data_path, train=False):
         datas = json.load(open(data_path, 'r'))
         examples = []
         for data in datas:
             for utt in data:
                 ex = cls(utt, restore_label=False)
-                ex_restore = cls(utt, restore_label=True)
                 examples.append(ex)
-                examples.append(ex_restore)
+                if train:
+                    ex_restore = cls(utt, restore_label=True)
+                    examples.append(ex_restore)
         return examples
 
     @classmethod
