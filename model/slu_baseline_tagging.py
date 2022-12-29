@@ -44,7 +44,7 @@ class SLUTagging(nn.Module):
             self.dropout_layer = nn.Dropout(p=config.dropout)
         self.word_embed = nn.Embedding(config.vocab_size, config.embed_size, padding_idx=0)
         self.BI_embedding_dim = config.BI_embedding_dim
-        self.BIO_tagger = TaggingFNNDecoder(config.hidden_size, 4, config.tag_pad_idx)
+        self.BIO_tagger = AdvancedTaggingFNNDecoder(config.hidden_size, [512, 1024, 512], 4, config.tag_pad_idx)
         self.slot_tagger = TaggingFNNDecoder(config.hidden_size + self.BI_embedding_dim, 37, config.tag_pad_idx)
 
         with open(self.observed_values_path, 'r') as f:
@@ -167,6 +167,33 @@ class TaggingFNNDecoder(nn.Module):
         h1 = self.relu(self.fc1(hiddens))
         h2 = self.relu(self.fc2(h1))
         logits = self.output_layer(h2)
+        logits += (1 - mask).unsqueeze(-1).repeat(1, 1, self.num_tags) * -1e32
+        prob = torch.softmax(logits, dim=-1)
+        if labels is not None:
+            loss = self.loss_fct(logits.view(-1, logits.shape[-1]), labels.view(-1))
+            return prob, loss
+        return prob
+
+class AdvancedTaggingFNNDecoder(nn.Module):
+    def __init__(self, input_size, hidden_sizes, num_tags, pad_id):
+        super(AdvancedTaggingFNNDecoder, self).__init__()
+        self.num_tags = num_tags
+        self.fcs = []
+        input_sz = input_size
+        for i, hidden_size in enumerate(hidden_sizes):
+            fc = nn.Linear(input_sz, hidden_size)
+            self.__setattr__("fc{}".format(i), fc)
+            self.fcs.append(fc)
+            input_sz = hidden_size
+        self.last_fc = nn.Linear(input_sz, num_tags)
+        self.relu = nn.ReLU()
+        self.loss_fct = nn.CrossEntropyLoss(ignore_index=pad_id)
+
+    def forward(self, hiddens, mask, labels=None):
+        h = hiddens
+        for fc in self.fcs:
+            h = self.relu(fc(h))
+        logits = self.last_fc(h)
         logits += (1 - mask).unsqueeze(-1).repeat(1, 1, self.num_tags) * -1e32
         prob = torch.softmax(logits, dim=-1)
         if labels is not None:
